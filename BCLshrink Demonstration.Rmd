@@ -1,0 +1,177 @@
+---
+title: "BCLshrink Demonstration"
+author: "Md Nazir Uddin and Jeremy T Gaskins"
+date: "11/17/2021"
+output: pdf_document
+theme: flatly
+keep_tex: true
+fig_caption: true
+header-includes:
+   - \usepackage{subcaption}
+   - \usepackage{float}
+
+---
+
+This document demonstrates the code used in the manuscript "Shared Bayesian Variable Shrinkage in Multinomial Logistic Regression" by Md Nazir Uddin and Jeremy T Gaskins.  
+
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include=FALSE}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+```
+
+
+
+
+First, we load the source file and other packages that our code is dependent upon.
+
+<!-- ## Setting the source code  -->
+```{r, include=TRUE, message=FALSE}
+# source("BCLshrink code source.R")
+library(devtools)
+source_url("https://raw.githubusercontent.com/jeremygaskins/BCLshrink/main/BCLshrink%20code%20source.R")
+library(pgdraw)
+library(pscl)
+library(coda)
+library(GIGrvg)
+```
+
+
+ 
+There are five functions in  the BCLshrink source code file: BLCshrink.HSSS, BLCshrink.HSUS, BLCshrink.NGSS, BLCshrink.NGUS, BLCshrink.none.  The first four fit the various shrinkage models proposed either using shared shrinkage (SS) or unique shrinkage (US).  For each choice, the global-local prior used is either horseshoe (HS) or normal-gamma (NG).  The BLCshrink.none function runs the "no shrinkage" model that simply uses a mean-zero normal prior.
+ 
+## Function arguements (in all functions):
+ y: response vector.  Should be coded as numeric with values 1,2,..,k  
+ X: design matrix.  Must be numeric.  Do not include intercept.  
+ N_it: total number of iterations used.  (default: 15,000)  
+ burn.in: number of iterations to discard as burn in.  (default: 20% of N_it)  
+ CI.level:  confidence interval level.  (default: 0.95)  
+ progress:  whether to print MCMC progress markers  
+ samples: whether to return the array with all stored MCMC samples (default: false)  
+ MCMC.seed: (default: 209578)
+
+## Additional arguments for the NG model functions:
+ c0:  Normal-Gamma hyperparameter (default: 0.01)
+ c1:  Normal-Gamma hyperparameter (default: 0.01)
+ theta:  Normal-Gamma tail thickness parameter (default: 0.05)
+
+## Additional argument for the no shrinkage function:
+ prior.var:  this model performs no shrinkage and simply has a prior covariance matrix with elements given by prior.var (default: 100)
+ 
+ 
+ 
+## Loading data set 
+```{r}
+load('mnlsims1v1v2_df1.RData')
+# File is available in the BCLshrink repository on Github
+y <- mnlogit_data[,1]
+table(y)
+```
+The function will take the largest category as the reference.  For this data, that will be K=3.  If a different category is desired to be the reference, the user should relabel the y vector.
+```{r}
+X <- as.matrix(mnlogit_data[,-1])
+X[1:10,1:10]
+```
+Note: The intercept should not be included in the X matrix. X should be centered and scaled.
+
+
+## Fitting Horseshoe shared shrinkage (HS SS) model:
+```{r}
+fit.HSSS <- BLCshrink.HSSS(y=y, X = X,
+                           N_it=15000, burn.in=5000, samples=TRUE, progress=FALSE)
+
+```
+
+## Printing the point estimates (posterior means) for the intercept and the first 10 predictors:
+
+```{r}
+round(fit.HSSS$kappa.hat,3)[,1:11]
+```
+Note: Each row corresponds to the particular category value with category K set to zero as default.
+
+## Printing the credible intervals for the first 10 variables
+
+```{r}
+round(fit.HSSS$kappa.LCI,3)[,1:11]
+round(fit.HSSS$kappa.UCI,3)[,1:11]
+```
+Note:
+LCI shows the lower endpoint of the interval and UCI is the upper endpoint. The CIs are not well-defined for the K=3 reference category.
+
+## Determining which variables are significantly associated with class membership
+This is determined by whether the CI overlaps with zero and is not defined for the reference category.
+
+```{r}
+fit.HSSS$kappa.sig[,1:11]*1
+```
+Note:  The 1's indicate that the predictor is significantly associated.  Here, we see that X1 and X2 are each associated with a difference between class 1 and 3, and between class 2 and 3. The other variables X3-X10 are not significantly associated with any significant differences.
+
+
+## Check convergence: compute effective sample size
+```{r}
+round(apply(fit.HSSS$samples, 2:3, coda::effectiveSize),1)[,1:11]
+```
+
+
+## Trace plots of the coefficients 
+```{r trace plots HSSS,fig.height=4, out.width='.50\\linewidth', fig.asp=1, fig.ncol = 4 }
+for( p in 1:2){
+   for( j in 1:4){
+      plot( fit.HSSS$samples[,p,j], type='l', xlab='Stored Iteration',
+      main=paste0('Trace plot for ',colnames(fit.HSSS$kappa.hat)[j],
+                  ' coefficient in class ',p),
+      ylab='kappa')
+   }
+}
+# p is for each class and j for each coefficient in the pth class. 
+```
+For simplicity we are only showing the trace plots for the first 4 coefficients in each class.  The user should more thoroughly investigate the mixing of all coefficients.
+
+## Other shrinkage models
+Similarly, we can run the MCMC for the other shrinkage models.  Investigation of the point estimates, confidence intervals, hypothesis testing, and convergence is all done in the exact same way.  For simplicity, we ony show the model fitting and the point estimates.
+
+
+## Normal Gamma shared shrinkage (NG SS) model
+```{r}
+fit.NGSS <- BLCshrink.NGSS(y=y, X = X,
+	N_it=15000, burn.in=5000, samples=TRUE, progress=FALSE)
+round(fit.NGSS$kappa.hat,3)[,1:11]
+```
+
+
+
+## Horseshoe unique shrinkage (HS US) model
+```{r}
+fit.HSUS <- BLCshrink.HSUS(y=y, X = X,
+	N_it=15000, burn.in=5000, samples=TRUE, progress=FALSE) 
+round(fit.HSUS$kappa.hat,3)[,1:11]
+```
+
+
+
+
+
+
+## Normal Gamma unique shrinkage (NG US) model
+```{r}
+fit.NGUS <- BLCshrink.NGUS(y=y, X = X,
+	N_it=15000, burn.in=5000, samples=TRUE, progress=FALSE) 
+round(fit.NGUS$kappa.hat,3)[,1:11]
+```
+
+
+
+
+## No shrinkage (NS) method
+```{r}
+fit.none <- BLCshrink.none(y=y, X = X,
+	N_it=15000, burn.in=5000, samples=TRUE, progress=FALSE) 
+round(fit.none$kappa.hat,3)[,1:11]
+```
+
+
